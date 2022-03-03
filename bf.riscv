@@ -3,14 +3,17 @@ filepath: .asciz "program.b"
 
 .text
 
-read:
+# perform 1-byte read or write to file descriptor in a1. a0=1 => write, a1=0 => read. a2 contains the byte to be written, if applicable
+io:
     addi sp, sp, -1 # allocate one byte on stack
-    li a7, 63 # read (file) syscall
+    li a7, 63 # read syscall
+    add a7, a7, a0 # a0 is either 0 or 1, so the syscall either doesn't change or changes to write
     addi a1, sp, 1 # buffer address: beginning of newly allocated byte
-    li a2, 1 # read 1 byte max
+    sb a2, (a1) # store a2 in the stack byte in case this is a write
+    li a2, 1 # read/write 1 byte
     ecall
     mv a1, a0 # return status as a1 (-1, 0 or 1)
-    lb a0, 1(sp) # return byte as a0
+    lb a0, 1(sp) # return read/written byte as a0
     addi sp, sp, 1 # free stack byte
     jr ra
 
@@ -37,10 +40,11 @@ read:
     
     
     interpret:
-    mv a0, s3
-    jal read # read next char
+    li a0, 0 # this is a read...
+    mv a1, s3 # from the input file
+    jal io
     beqz a1, success # no more chars -> program is over
-    bltz a1, error 
+    bltz a1, error # read char amount is < 0 -> error
     
     li t0, '+' # '+'
     beq a0, t0, inc
@@ -59,39 +63,41 @@ read:
     li t0, ']' # ']'
     beq a0, t0, loop_close
     
-    b after
+    j after
     
     inc: # load current cell value and increment it
     lw t1, (s1)
     addi t1, t1, 1
     sw t1, (s1)
-    b after
+    j after
 
     dec: # load current cell value and decrement it
     lw t1, (s1)
     addi t1, t1, -1
     sw t1, (s1)
-    b after
+    j after
     
     right: # increment cell pointer
     addi s1, s1, 1
-    b after
+    j after
     
     left: # decrement cell pointer
     addi s1, s1, -1
-    b after
+    j after
     
-    out: # PrintChar system call for current cell value
-    li a7, 11
-    lw a0, (s1)
-    ecall
-    b after
+    out: # print current cell value
+    li a0, 1 # this is a write...
+    li a1, 1 # to stdout...
+    lw a2 (s1) # for the current cell value
+    jal io
+    j after
     
-    in: # ReadChar system call for current cell
-    li a7, 12
-    ecall
-    sw a0, (s1)
-    b after
+    in: # read into current cell
+    li a0, 0 # this is a read...
+    li a1, 0 # from stdin
+    jal io
+    sw a0, (s1) # store read value
+    j after
     
     loop_open:
     addi sp, sp, -4
@@ -116,32 +122,31 @@ read:
     bnez t2, find_end # if open bracket count is 0, the matching closing bracket has been found. if not, continue search
     # found the closing bracket
     addi sp, sp, 4 # remove [ instruction offset from stack
-    b after
+    j after
     
     loop_close:
-    lw t1, 4(sp) # pop most recent loop open instruction off stack
+    lw a1, 4(sp) # pop most recent loop open instruction off stack
     addi sp, sp, 4
     
     # lseek system call: jump back to loop beginning
     li a7, 62 
     mv a0, s3
-    mv a1, t1
     li a2, 0
     ecall
     bltz a0, error
     
     addi t1, t1, -1
     mv s2, t1 # reset instruction offset to that of the opening loop -1 (-1 because 1 is added at the end of the loop)
-    b after
+    j after
     
     after:
     addi s2, s2, 1 # increment instruction offset
-    b interpret
+    j interpret
     
     
     success: 
     li t0, 0
-    b end
+    j end
     
     error:
     li t0, 1
