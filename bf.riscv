@@ -1,6 +1,3 @@
-.data
-filepath: .asciz "program.b"
-
 .text
 
 # perform 1-byte read or write to file descriptor in a1. a0=1 => write, a1=0 => read. a2 contains the byte to be written, if applicable
@@ -18,8 +15,20 @@ io:
     jr ra
 
 
-.globl main
- main:
+.globl _start
+ _start:
+    # open input file (first command line argument)
+    li a7, 56
+    li a0, -100 # open relative to working directory
+    lw a1, (a1) # a1=argv. doing this sets a1 to the pointer to the first argument
+    li a2, 0x2000 # Open as read only
+    li a3, 0 # mode doesn't matter
+    ecall
+    mv s3, a0
+    # if returned descriptor is -1, go to error
+    addi a0, a0, 1
+    beqz a0, error
+ 
     # Allocating brainfuck array
     li a7, 222 # mmap syscall
     li a0, 0 # addr = NULL => OS will select free address for us
@@ -32,17 +41,6 @@ io:
     ecall
     mv s1, a0 # array address is available in s1
     li s2, 0 # instruction pointer
-    
-    # open file
-    li a7, 1024
-    la a0, filepath
-    li a1, 0
-    ecall
-    mv s3, a0
-    # if returned descriptor is -1, go to error
-    addi a0, a0, 1
-    beqz a0, error
-    
     
     interpret:
     li a0, 0 # this is a read...
@@ -114,13 +112,14 @@ io:
     # go over the following instructions, find the matching ]
     find_end:
     addi s2, s2, 1
-    mv a0, s3
-    jal read # read next instruction
+    li a0, 0 # this is a read...
+    mv a1, s3 # from the input file...
+    jal io # to read the next instruction
     bne a0, t1, if_open # if instruction is not a closing bracket, move to check if it's an opening bracket
     addi t2, t2, -1 # if it is a closing bracket, decrement open bracket count
     
     if_open:
-    bne a0, t0, cont # if instruction is not an opening bracket, continue search
+    bne a0, t0, else # if instruction is not an opening bracket, continue search
     addi t2, t2, 1 # if it is opening, increment open bracket count
     
     else:
