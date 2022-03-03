@@ -4,15 +4,15 @@ filepath: .asciz "program.b"
 .text
 
 read:
-addi sp, sp, -1 # allocate one byte on stack
-li a7, 63 # read (file) syscall
-addi a1, sp, 1 # buffer address: beginning of newly allocated byte
-li a2, 1 # read 1 byte max
-ecall
-mv a1, a0 # return status as a1 (-1, 0 or 1)
-lb a0, 1(sp) # return byte as a0
-addi sp, sp, 1 # free stack byte
-jr ra
+    addi sp, sp, -1 # allocate one byte on stack
+    li a7, 63 # read (file) syscall
+    addi a1, sp, 1 # buffer address: beginning of newly allocated byte
+    li a2, 1 # read 1 byte max
+    ecall
+    mv a1, a0 # return status as a1 (-1, 0 or 1)
+    lb a0, 1(sp) # return byte as a0
+    addi sp, sp, 1 # free stack byte
+    jr ra
 
 
 .globl main
@@ -121,6 +121,15 @@ jr ra
     loop_close:
     lw t1, 4(sp) # pop most recent loop open instruction off stack
     addi sp, sp, 4
+    
+    # lseek system call: jump back to loop beginning
+    li a7, 62 
+    mv a0, s3
+    mv a1, t1
+    li a2, 0
+    ecall
+    bltz a0, error
+    
     addi t1, t1, -1
     mv s2, t1 # reset instruction offset to that of the opening loop -1 (-1 because 1 is added at the end of the loop)
     b after
