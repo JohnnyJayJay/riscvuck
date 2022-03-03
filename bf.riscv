@@ -1,0 +1,64 @@
+.data
+filepath: .asciz "program.b"
+
+.text
+
+read:
+addi sp, sp, -1
+li a7, 63
+addi a1, sp, 1
+li a2, 1
+ecall
+mv a1, a0
+lb a0, 1(sp)
+addi sp, sp, 1
+jr ra
+
+
+.globl main
+ main:
+    # Allocating brainfuck array
+    li a7, 9 # sbrk syscall
+    li a0, 0xffff
+    slli a0, a0, 2 # 4 * 0xffff bytes
+    ecall
+    mv s1, a0 # array address is available in s1
+    li s2, 0 # cell pointer
+    li s3, 0 # instruction pointer
+    
+    # open file
+    li a7, 1024
+    la a0, filepath
+    li a1, 0
+    ecall
+    mv s4, a0
+    # if returned descriptor is -1, go to error
+    addi a0, 1
+    beqz a0, error
+    
+    
+    interpret:
+    mv a0, s4
+    jal read # read next char
+    beqz a1, success # no more chars -> program is over
+    bltz a1, error 
+    
+    
+    success: 
+    li t0, 0
+    b end
+    
+    error:
+    li t0, 1
+    
+    end:
+    # close file
+    li a7, 57
+    mv a0, s4
+    ecall
+    # exit
+    mv a0, t0
+    li a7, 93
+    ecall
+    
+    
