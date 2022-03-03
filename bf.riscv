@@ -61,33 +61,33 @@ read:
     
     b after
     
-    inc:
+    inc: # load current cell value and increment it
     lw t1, (s1)
     addi t1, t1, 1
     sw t1, (s1)
     b after
 
-    dec:
+    dec: # load current cell value and decrement it
     lw t1, (s1)
     addi t1, t1, -1
     sw t1, (s1)
     b after
     
-    right:
+    right: # increment cell pointer
     addi s1, s1, 1
     b after
     
-    left:
+    left: # decrement cell pointer
     addi s1, s1, -1
     b after
     
-    out:
+    out: # PrintChar system call for current cell value
     li a7, 11
     lw a0, (s1)
     ecall
     b after
     
-    in:
+    in: # ReadChar system call for current cell
     li a7, 12
     ecall
     sw a0, (s1)
