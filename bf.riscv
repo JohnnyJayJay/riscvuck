@@ -99,6 +99,7 @@ io:
     li a0, 0 # this is a read...
     li a1, 0 # from stdin
     jal io
+    beqz a0, after # leave cell unchanged if EOF
     sw a0, (s1) # store read value
     j after
     
