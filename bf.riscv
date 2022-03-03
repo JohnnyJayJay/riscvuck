@@ -4,14 +4,14 @@ filepath: .asciz "program.b"
 .text
 
 read:
-addi sp, sp, -1
-li a7, 63
-addi a1, sp, 1
-li a2, 1
+addi sp, sp, -1 # allocate one byte on stack
+li a7, 63 # read (file) syscall
+addi a1, sp, 1 # buffer address: beginning of newly allocated byte
+li a2, 1 # read 1 byte max
 ecall
-mv a1, a0
-lb a0, 1(sp)
-addi sp, sp, 1
+mv a1, a0 # return status as a1 (-1, 0 or 1)
+lb a0, 1(sp) # return byte as a0
+addi sp, sp, 1 # free stack byte
 jr ra
 
 
@@ -23,25 +23,111 @@ jr ra
     slli a0, a0, 2 # 4 * 0xffff bytes
     ecall
     mv s1, a0 # array address is available in s1
-    li s2, 0 # cell pointer
-    li s3, 0 # instruction pointer
+    li s2, 0 # instruction pointer
     
     # open file
     li a7, 1024
     la a0, filepath
     li a1, 0
     ecall
-    mv s4, a0
+    mv s3, a0
     # if returned descriptor is -1, go to error
-    addi a0, 1
+    addi a0, a0, 1
     beqz a0, error
     
     
     interpret:
-    mv a0, s4
+    mv a0, s3
     jal read # read next char
     beqz a1, success # no more chars -> program is over
     bltz a1, error 
+    
+    li t0, '+' # '+'
+    beq a0, t0, inc
+    li t0, '-' # '-'
+    beq a0, t0, dec
+    li t0, '>' # '>'
+    beq a0, t0, right
+    li t0, '<' # '<'
+    beq a0, t0, left
+    li t0, ',' # '.'
+    beq a0, t0, out
+    li t0, ',' # ','
+    beq a0, t0, in
+    li t0, '[' # '['
+    beq a0, t0, loop_open
+    li t0, ']' # ']'
+    beq a0, t0, loop_close
+    
+    b after
+    
+    inc:
+    lw t1, (s1)
+    addi t1, t1, 1
+    sw t1, (s1)
+    b after
+
+    dec:
+    lw t1, (s1)
+    addi t1, t1, -1
+    sw t1, (s1)
+    b after
+    
+    right:
+    addi s1, s1, 1
+    b after
+    
+    left:
+    addi s1, s1, -1
+    b after
+    
+    out:
+    li a7, 11
+    lw a0, (s1)
+    ecall
+    b after
+    
+    in:
+    li a7, 12
+    ecall
+    sw a0, (s1)
+    b after
+    
+    loop_open:
+    addi sp, sp, -4
+    sw s2, 4(sp) # push instruction offset to stack
+    lw t1, (s1) # current cell value -> t1
+    bnez t1, after # if current cell is not zero, continue reading
+    li t1, ']'
+    li t2, 1 # open brackets count
+    # go over the following instructions, find the matching ]
+    find_end:
+    addi s2, s2, 1
+    mv a0, s3
+    jal read # read next instruction
+    bne a0, t1, if_open # if instruction is not a closing bracket, move to check if it's an opening bracket
+    addi t2, t2, -1 # if it is a closing bracket, decrement open bracket count
+    
+    if_open:
+    bne a0, t0, cont # if instruction is not an opening bracket, continue search
+    addi t2, t2, 1 # if it is opening, increment open bracket count
+    
+    else:
+    bnez t2, find_end # if open bracket count is 0, the matching closing bracket has been found. if not, continue search
+    # found the closing bracket
+    addi sp, sp, 4 # remove [ instruction offset from stack
+    b after
+    
+    loop_close:
+    lw t1, 4(sp) # pop most recent loop open instruction off stack
+    addi sp, sp, 4
+    addi t1, t1, -1
+    mv s2, t1 # reset instruction offset to that of the opening loop -1 (-1 because 1 is added at the end of the loop)
+    b after
+    
+    after:
+    addi s2, s2, 1 # increment instruction offset
+    b interpret
     
     
     success: 
