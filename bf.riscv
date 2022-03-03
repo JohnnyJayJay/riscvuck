@@ -21,9 +21,14 @@ io:
 .globl main
  main:
     # Allocating brainfuck array
-    li a7, 9 # sbrk syscall
-    li a0, 0xffff
-    slli a0, a0, 2 # 4 * 0xffff bytes
+    li a7, 222 # mmap syscall
+    li a0, 0 # addr = NULL => OS will select free address for us
+    li a1, 0xffff
+    slli a1, a1, 2 # 4 * 0xffff bytes
+    li a2, 3 # PROT_READ | PROT_WRITE
+    li a3, 34 # MAP_PRIVATE | MAP_ANONYMOUS
+    li a4, -1 # file descriptor - ignored, but recommended to be -1
+    li a5, 0 # offset - must be 0
     ecall
     mv s1, a0 # array address is available in s1
     li s2, 0 # instruction pointer
