@@ -5,18 +5,19 @@ io:
     addi sp, sp, -1 # allocate one byte on stack
     li a7, 63 # read syscall
     add a7, a7, a0 # a0 is either 0 or 1, so the syscall either doesn't change or changes to write
-    addi a1, sp, 1 # buffer address: beginning of newly allocated byte
-    sb a2, (a1) # store a2 in the stack byte in case this is a write
+    mv a1, sp # buffer address: beginning of newly allocated byte
+    sb a2, (sp) # store a2 in the stack byte in case this is a write
     li a2, 1 # read/write 1 byte
     ecall
     mv a1, a0 # return status as a1 (-1, 0 or 1)
-    lb a0, 1(sp) # return read/written byte as a0
+    lb a0, (sp) # return read/written byte as a0
     addi sp, sp, 1 # free stack byte
     jr ra
 
 
 .globl _start
  _start:
+ 
     # open input file (first command line argument)
     li a7, 56
     li a0, -100 # open relative to working directory
@@ -91,7 +92,7 @@ io:
     out: # print current cell value
     li a0, 1 # this is a write...
     li a1, 1 # to stdout...
-    lw a2 (s1) # for the current cell value
+    lw a2, (s1) # for the current cell value
     jal io
     j after
     
@@ -105,7 +106,7 @@ io:
     
     loop_open:
     addi sp, sp, -4
-    sw s2, 4(sp) # push instruction offset to stack
+    sw s2, (sp) # push instruction offset to stack
     lw t1, (s1) # current cell value -> t1
     bnez t1, after # if current cell is not zero, continue reading
     li t1, ']'
@@ -130,7 +131,7 @@ io:
     j after
     
     loop_close:
-    lw a1, 4(sp) # pop most recent loop open instruction off stack
+    lw a1, (sp) # pop most recent loop open instruction off stack
     addi sp, sp, 4
     
     # lseek system call: jump back to loop beginning
