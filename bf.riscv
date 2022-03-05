@@ -54,6 +54,9 @@ check_syntax:
 # s4 = input length (instruction count)
 .globl _start
  _start:
+    lw t0, (sp)
+    addi t0, t0, -1
+    beqz t0, arg_error
  
     # open input file (first command line argument)
     li a7, 56
@@ -122,7 +125,7 @@ check_syntax:
     mv s1, a0 # current cell address is available in s1
     
     interpret:
-    beq s2, s4, loop_check # if instruction offset=instruction length, there is no more code
+    beq s2, s4, success # if instruction offset=instruction length, there is no more code
     add t1, s0, s2 # t1 = instruction base + instruction offset
     lb t1, (t1) # load instruction at t1
     
@@ -223,13 +226,13 @@ check_syntax:
     li a0, 0
     j end
     
-    # file/io error
-    file_error:
+    # no input file
+    arg_error:
     li a0, 1
     j end
     
-    # syntax error (i.e. malformed loops)
-    syntax_error:
+    # file/io error
+    file_error:
     li a0, 2
     j end
     
@@ -238,11 +241,10 @@ check_syntax:
     li a0, 3
     j end
     
-    # only exit(0) if brackets are balanced
-    loop_check:
-    li a0, 0
-    beqz s5, end
-    j syntax_error
+    # syntax error (i.e. malformed loops)
+    syntax_error:
+    li a0, 4
+    j end
     
     end:
     # exit
