@@ -16,12 +16,42 @@ io:
     jr ra
 
 
+# checks if brackets [] are well balanced. a0=base address of instructions, a1=instruction count
+# returns a0=0 if valid, a0=-1 if not
+check_syntax:
+    li t0, 0
+    li t1, '['
+    li t2, ']'
+    add a1, a0, a1
+    check:
+    beq a0, a1, check_end
+    lb t3, (a0)
+    
+    bne t3, t1, closed_check
+    addi t0, t0, 1
+    j next
+    
+    closed_check:
+    bne t3, t2, next
+    addi t0, t0, -1
+    bltz t0, check_end
+    
+    next:  
+    addi a0, a0, 1
+    j check
+    
+    check_end:
+    li a0, 0
+    beqz t0, check_return
+    li a0, -1
+    check_return:
+    jr ra
+
 # s0 = base address of the array containing the instructions
 # s1 = cell pointer
 # s2 = current instruction offset
 # s3 = input file descriptor
 # s4 = input length (instruction count)
-# s5 = open loop count
 .globl _start
  _start:
  
@@ -71,6 +101,12 @@ io:
     li a7, 57
     mv a0, s3
     ecall
+    
+    # syntax check
+    mv a0, s0
+    mv a1, s4
+    jal check_syntax
+    bltz a0, syntax_error
  
     # Allocate brainfuck array
     li a7, 222 # mmap syscall
@@ -84,8 +120,6 @@ io:
     ecall
     bltz a0, mem_error
     mv s1, a0 # current cell address is available in s1
-    
-    li s5, 0 # open loop count
     
     interpret:
     beq s2, s4, loop_check # if instruction offset=instruction length, there is no more code
@@ -147,7 +181,6 @@ io:
     loop_open:
     addi sp, sp, -4
     sw s2, (sp) # push instruction offset to stack
-    addi s5, s5, 1 # one more open loop
     lw t1, (s1) # current cell value -> t1
     bnez t1, after # if current cell is not zero, continue reading
     
@@ -158,7 +191,6 @@ io:
     find_end:
     # next instruction -> t3
     addi s2, s2, 1 
-    beq s2, s4, syntax_error # no more instructions means this loop wasn't closed => syntax error
     add t3, s0, s2 
     lb t3, (t3)
     
@@ -173,12 +205,9 @@ io:
     bnez t2, find_end # if open bracket count is 0, the matching closing bracket has been found. if not, continue search
     # found the closing bracket
     addi sp, sp, 4 # remove [ instruction offset from stack
-    addi s5, s5, -1 # loop is closed
     j after
     
     loop_close:
-    blez s5, syntax_error # if there is no open loop, you can't close it => syntax error
-    addi s5, s5, -1 # one less open loop now
     # jump back to loop beginning
     lw s2, (sp)
     addi s2, s2, -1 # reset instruction offset to that of the opening loop -1 (-1 because 1 is added at 'after')
