@@ -1,0 +1,5 @@
+#!/bin/sh
+
+riscv32-elf-as -o bf.out bf.riscv
+riscv32-elf-ld -o bf bf.out
+rm bf.out
