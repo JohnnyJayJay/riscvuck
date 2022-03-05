@@ -1,13 +1,13 @@
 .text
 
-# perform 1-byte read or write to file descriptor in a1. a0=1 => write, a1=0 => read. a2 contains the byte to be written, if applicable
+# perform 1-byte read from stdin/write to stdout.
+# a0=0 => read, a0=1 => write, a1=byte to write.
 io:
     addi sp, sp, -1 # allocate one byte on stack
     li a7, 63 # read syscall
     add a7, a7, a0 # a0 is either 0 or 1, so the syscall either doesn't change or changes to write
-    mv a0, a1 # file descriptor goes in a0
+    sb a1, (sp) # store a1 in the stack byte in case this is a write
     mv a1, sp # buffer address: beginning of newly allocated byte
-    sb a2, (sp) # store a2 in the stack byte in case this is a write
     li a2, 1 # read/write 1 byte
     ecall
     mv a1, a0 # return status as a1 (-1, 0 or 1)
@@ -29,8 +29,43 @@ io:
     # if returned descriptor is -1, go to error
     addi a0, a0, 1
     beqz a0, error
+    
+    # determine file length
+    addi sp, sp, -8 # space for offset result
+    li a7, 62 # llseek syscall
+    mv a0, s3 # input file
+    li a1, 0 # no high offset
+    li a2, 0 # no low offset
+    mv a3, sp
+    li a4, 2 # SEEK_END
+    ecall
+    lw t0, (sp)
+    lw t1, 4(sp)
+    add s4, t0, t1 # file length => s4 
+    beqz s4, success # if length is 0, we're done
+    bltz s4, error # if length is < 0, the file is too big
+    addi sp, sp, 8 # deallocate space for new offsets
+    
+    # memory map input file
+    li a7, 222 # mmap
+    li a0, 0 # addr=NULL
+    mv a1, s4 # length=filesize
+    li a2, 1 # PROT_READ
+    li a3, 2 # MAP_PRIVATE
+    mv a4, s3 # map the input file
+    li a5, 0 # offset 0
+    ecall
+    bltz a0, error
+    
+    mv s0, a0 # instructions address
+    li s2, 0 # instruction offset
+    
+    # close file
+    li a7, 57
+    mv a0, s3
+    ecall
  
-    # Allocating brainfuck array
+    # Allocate brainfuck array
     li a7, 222 # mmap syscall
     li a0, 0 # addr = NULL => OS will select free address for us
     li a1, 0xffff
@@ -40,32 +75,29 @@ io:
     li a4, -1 # file descriptor - ignored, but recommended to be -1
     li a5, 0 # offset - must be 0
     ecall
-    mv s1, a0 # array address is available in s1
-    li s2, 0 # instruction offset
+    mv s1, a0 # current cell address is available in s1
     
     interpret:
-    li a0, 0 # this is a read...
-    mv a1, s3 # from the input file
-    jal io
-    beqz a1, success # no more chars -> program is over
-    bltz a1, error # read char amount is < 0 -> error
+    beq s2, s4, success # if instruction offset=instruction length, there is no more code
+    add t1, s0, s2 # t1 = instruction base + instruction offset
+    lb t1, (t1) # load instruction at t1
     
     li t0, '+' # '+'
-    beq a0, t0, inc
+    beq t1, t0, inc
     li t0, '-' # '-'
-    beq a0, t0, dec
+    beq t1, t0, dec
     li t0, '>' # '>'
-    beq a0, t0, right
+    beq t1, t0, right
     li t0, '<' # '<'
-    beq a0, t0, left
+    beq t1, t0, left
     li t0, '.' # '.'
-    beq a0, t0, out
+    beq t1, t0, out
     li t0, ',' # ','
-    beq a0, t0, in
+    beq t1, t0, in
     li t0, '[' # '['
-    beq a0, t0, loop_open
+    beq t1, t0, loop_open
     li t0, ']' # ']'
-    beq a0, t0, loop_close
+    beq t1, t0, loop_close
     
     j after
     
@@ -91,14 +123,12 @@ io:
     
     out: # print current cell value
     li a0, 1 # this is a write...
-    li a1, 1 # to stdout...
-    lw a2, (s1) # for the current cell value
+    lw a1, (s1) # for the current cell value
     jal io
     j after
     
     in: # read into current cell
-    li a0, 0 # this is a read...
-    li a1, 0 # from stdin
+    li a0, 0 # this is a read
     jal io
     beqz a0, after # leave cell unchanged if EOF
     sw a0, (s1) # store read value
@@ -109,19 +139,24 @@ io:
     sw s2, (sp) # push instruction offset to stack
     lw t1, (s1) # current cell value -> t1
     bnez t1, after # if current cell is not zero, continue reading
+    
+    li t0, '['
     li t1, ']'
     li t2, 1 # open brackets count
     # go over the following instructions, find the matching ]
     find_end:
-    addi s2, s2, 1
-    li a0, 0 # this is a read...
-    mv a1, s3 # from the input file...
-    jal io # to read the next instruction
-    bne a0, t1, if_open # if instruction is not a closing bracket, move to check if it's an opening bracket
+    # next instruction -> t3
+    addi s2, s2, 1 
+    beq s2, s4, error
+    add t3, s0, s2 
+    lb t3, (t3)
+    
+    bne t3, t1, if_open # if instruction is not a closing bracket, move to check if it's an opening bracket
+    blez t2, error # if there currently is no open bracket, error
     addi t2, t2, -1 # if it is a closing bracket, decrement open bracket count
     
     if_open:
-    bne a0, t0, else # if instruction is not an opening bracket, continue search
+    bne t3, t0, else # if instruction is not an opening bracket, continue search
     addi t2, t2, 1 # if it is opening, increment open bracket count
     
     else:
@@ -131,22 +166,10 @@ io:
     j after
     
     loop_close:
-    lw t1, (sp) # pop most recent loop open instruction off stack
-    addi sp, sp, -4 # allocate 4 more bytes on stack to make room for 8-byte offset result
-    
-    # llseek system call: jump back to loop beginning
-    li a7, 62 
-    mv a0, s3 # fd
-    li a1, 0 # offset_high=0
-    mv a2, t1 # offset_low=beginning of loop
-    mv a3, sp # result buffer: stack
-    li a4, 0 # whence=SEEK_SET
-    ecall
-    addi sp, sp, 8 # deallocate offset result (not needed)
-    bltz a0, error
-    
-    addi t1, t1, -1
-    mv s2, t1 # reset instruction offset to that of the opening loop -1 (-1 because 1 is added at 'after')
+    # jump back to loop beginning
+    lw s2, (sp)
+    addi s2, s2, -1 # reset instruction offset to that of the opening loop -1 (-1 because 1 is added at 'after')
+    addi sp, sp, 4
     j after
     
     after:
@@ -161,10 +184,7 @@ io:
     li t0, 1
     
     end:
-    # close file
-    li a7, 57
-    mv a0, s3
-    ecall
+    
     # exit
     mv a0, t0
     li a7, 93
