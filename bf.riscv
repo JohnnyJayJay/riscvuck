@@ -15,6 +15,13 @@ io:
     addi sp, sp, 1 # free stack byte
     jr ra
 
+
+# s0 = base address of the array containing the instructions
+# s1 = cell pointer
+# s2 = current instruction offset
+# s3 = input file descriptor
+# s4 = input length (instruction count)
+# s5 = open loop count
 .globl _start
  _start:
  
@@ -28,7 +35,7 @@ io:
     mv s3, a0
     # if returned descriptor is -1, go to error
     addi a0, a0, 1
-    beqz a0, error
+    beqz a0, file_error
     
     # determine file length
     addi sp, sp, -8 # space for offset result
@@ -43,7 +50,7 @@ io:
     lw t1, 4(sp)
     add s4, t0, t1 # file length => s4 
     beqz s4, success # if length is 0, we're done
-    bltz s4, error # if length is < 0, the file is too big
+    bltz s4, file_error # if length is < 0, the file is too big
     addi sp, sp, 8 # deallocate space for new offsets
     
     # memory map input file
@@ -55,7 +62,7 @@ io:
     mv a4, s3 # map the input file
     li a5, 0 # offset 0
     ecall
-    bltz a0, error
+    bltz a0, mem_error
     
     mv s0, a0 # instructions address
     li s2, 0 # instruction offset
@@ -75,10 +82,13 @@ io:
     li a4, -1 # file descriptor - ignored, but recommended to be -1
     li a5, 0 # offset - must be 0
     ecall
+    bltz a0, mem_error
     mv s1, a0 # current cell address is available in s1
     
+    li s5, 0 # open loop count
+    
     interpret:
-    beq s2, s4, success # if instruction offset=instruction length, there is no more code
+    beq s2, s4, loop_check # if instruction offset=instruction length, there is no more code
     add t1, s0, s2 # t1 = instruction base + instruction offset
     lb t1, (t1) # load instruction at t1
     
@@ -137,6 +147,7 @@ io:
     loop_open:
     addi sp, sp, -4
     sw s2, (sp) # push instruction offset to stack
+    addi s5, s5, 1 # one more open loop
     lw t1, (s1) # current cell value -> t1
     bnez t1, after # if current cell is not zero, continue reading
     
@@ -147,12 +158,11 @@ io:
     find_end:
     # next instruction -> t3
     addi s2, s2, 1 
-    beq s2, s4, error
+    beq s2, s4, syntax_error # no more instructions means this loop wasn't closed => syntax error
     add t3, s0, s2 
     lb t3, (t3)
     
     bne t3, t1, if_open # if instruction is not a closing bracket, move to check if it's an opening bracket
-    blez t2, error # if there currently is no open bracket, error
     addi t2, t2, -1 # if it is a closing bracket, decrement open bracket count
     
     if_open:
@@ -163,9 +173,12 @@ io:
     bnez t2, find_end # if open bracket count is 0, the matching closing bracket has been found. if not, continue search
     # found the closing bracket
     addi sp, sp, 4 # remove [ instruction offset from stack
+    addi s5, s5, -1 # loop is closed
     j after
     
     loop_close:
+    blez s5, syntax_error # if there is no open loop, you can't close it => syntax error
+    addi s5, s5, -1 # one less open loop now
     # jump back to loop beginning
     lw s2, (sp)
     addi s2, s2, -1 # reset instruction offset to that of the opening loop -1 (-1 because 1 is added at 'after')
@@ -176,17 +189,34 @@ io:
     addi s2, s2, 1 # increment instruction offset
     j interpret
     
+    # everything went great
     success: 
-    li t0, 0
+    li a0, 0
     j end
     
-    error:
-    li t0, 1
+    # file/io error
+    file_error:
+    li a0, 1
+    j end
+    
+    # syntax error (i.e. malformed loops)
+    syntax_error:
+    li a0, 2
+    j end
+    
+    # error with memory mapping/allocation
+    mem_error:
+    li a0, 3
+    j end
+    
+    # only exit(0) if brackets are balanced
+    loop_check:
+    li a0, 0
+    beqz s5, end
+    j syntax_error
     
     end:
-    
     # exit
-    mv a0, t0
     li a7, 93
     ecall
     
