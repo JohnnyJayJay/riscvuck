@@ -1,3 +1,6 @@
+.data
+hello: .ascii "Hello!\n"
+
 .text
 
 # perform 1-byte read or write to file descriptor in a1. a0=1 => write, a1=0 => read. a2 contains the byte to be written, if applicable
@@ -5,6 +8,7 @@ io:
     addi sp, sp, -1 # allocate one byte on stack
     li a7, 63 # read syscall
     add a7, a7, a0 # a0 is either 0 or 1, so the syscall either doesn't change or changes to write
+    mv a0, a1 # file descriptor goes in a0
     mv a1, sp # buffer address: beginning of newly allocated byte
     sb a2, (sp) # store a2 in the stack byte in case this is a write
     li a2, 1 # read/write 1 byte
@@ -14,6 +18,16 @@ io:
     addi sp, sp, 1 # free stack byte
     jr ra
 
+dbg:
+   li a7, 64
+   li a0, 1
+   la a1, hello
+   li a2, 7
+   ecall
+   li a7, 82
+   li a0, 1
+   ecall
+   jr ra
 
 .globl _start
  _start:
@@ -21,7 +35,7 @@ io:
     # open input file (first command line argument)
     li a7, 56
     li a0, -100 # open relative to working directory
-    lw a1, (a1) # a1=argv. doing this sets a1 to the pointer to the first argument
+    lw a1, 8(sp) # stack=argc,argv. doing this sets a1 to argv[1]
     li a2, 0x2000 # Open as read only
     li a3, 0 # mode doesn't matter
     ecall
@@ -41,7 +55,7 @@ io:
     li a5, 0 # offset - must be 0
     ecall
     mv s1, a0 # array address is available in s1
-    li s2, 0 # instruction pointer
+    li s2, 0 # instruction offset
     
     interpret:
     li a0, 0 # this is a read...
@@ -58,7 +72,7 @@ io:
     beq a0, t0, right
     li t0, '<' # '<'
     beq a0, t0, left
-    li t0, ',' # '.'
+    li t0, '.' # '.'
     beq a0, t0, out
     li t0, ',' # ','
     beq a0, t0, in
@@ -82,11 +96,11 @@ io:
     j after
     
     right: # increment cell pointer
-    addi s1, s1, 1
+    addi s1, s1, 4
     j after
     
     left: # decrement cell pointer
-    addi s1, s1, -1
+    addi s1, s1, -4
     j after
     
     out: # print current cell value
@@ -131,21 +145,29 @@ io:
     j after
     
     loop_close:
-    lw a1, (sp) # pop most recent loop open instruction off stack
-    addi sp, sp, 4
+    lw t1, (sp) # pop most recent loop open instruction off stack
+    addi sp, sp, -4 # allocate 4 more bytes on stack to make room for 8-byte offset result
     
-    # lseek system call: jump back to loop beginning
+    # llseek system call: jump back to loop beginning
     li a7, 62 
-    mv a0, s3
-    li a2, 0
+    mv a0, s3 # fd
+    li a1, 0 # offset_high=0
+    mv a2, t1 # offset_low=beginning of loop
+    mv a3, sp # result buffer: stack
+    li a4, 0 # whence=SEEK_SET
     ecall
+    addi sp, sp, 8 # deallocate offset result (not needed)
     bltz a0, error
     
     addi t1, t1, -1
-    mv s2, t1 # reset instruction offset to that of the opening loop -1 (-1 because 1 is added at the end of the loop)
+    mv s2, t1 # reset instruction offset to that of the opening loop -1 (-1 because 1 is added at 'after')
     j after
     
     after:
+    #li a0, 1
+    #li a1, 1
+    #lw a2, (sp)
+    #jal io
     addi s2, s2, 1 # increment instruction offset
     j interpret
     
@@ -160,7 +182,7 @@ io:
     end:
     # close file
     li a7, 57
-    mv a0, s4
+    mv a0, s3
     ecall
     # exit
     mv a0, t0
